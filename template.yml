@@ -1,0 +1,75 @@
+#
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 256
+
+Resources:
+  GetDataFromAPIToS3:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/GetDataFromAPIToS3/
+      Handler: app.lambda_handler
+      Runtime: python3.7
+      Environment:
+        Variables:
+          Url: 'https://api.open-meteo.com/v1/forecast?latitude=13.73&longitude=100.52&hourly=temperature_2m,relativehumidity_2m,windspeed_10m'
+          S3Bucket: !Ref MyBucket
+          LogLevel: INFO
+          Filename: 'weather-output.json'
+      Policies:
+        - S3WritePolicy: 
+            BucketName: !Ref MyBucket
+      # Events:
+      #   UpdateEvent:
+      #     Type: Schedule
+      #     Properties:
+      #       Schedule: cron(0 8 * * ? *)
+
+  GetWeatherStateMachine:
+    Type: AWS::Serverless::StateMachine # More info about State Machine Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-statemachine.html
+    Properties:
+      DefinitionUri: statemachine/get_weather.asl.json
+      DefinitionSubstitutions:
+        GetDataFromAPIFunctionArn: !GetAtt GetDataFromAPIToS3.Arn
+      Events:
+        DailySchedule:
+          Type: Schedule # More info about Schedule Event Source: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-property-statemachine-schedule.html
+          Properties:
+            Description: Schedule to run every day at 08:00 UTC
+            Enabled: False # This schedule is disabled by default to avoid incurring charges.
+            Schedule: "cron(0 8 * * ? *)"
+      Policies: # Find out more about SAM policy templates: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-policy-templates.html
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GetDataFromAPIToS3
+
+  MyBucket:
+    Type: AWS::S3::Bucket
+
+Outputs:
+  GetDataFromAPIToS3:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt GetDataFromAPIToS3.Arn
+  S3Bucket:
+    Description: "S3 Bucket Name"
+    Value: !Ref MyBucket
